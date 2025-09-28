@@ -155,6 +155,66 @@ REDIS_ADDR=${REDIS_URL}
 LOG_LEVEL=info
 ```
 
+## Redis Streams and Event System
+
+The backend uses **Redis Streams** as the core technology for the real-time event system. This provides a durable, ordered log of all infrastructure changes.
+
+### How Redis Streams Are Used
+
+1. **Event Storage**
+   - Stream Key: `nodes:events`
+   - Events are appended using `XADD` command
+   - Each event is automatically timestamped by Redis
+   - Events are never modified, only appended (append-only log)
+
+2. **Event Structure**
+   ```
+   Event ID: 1610712345678-0 (timestamp-sequence)
+   Fields:
+     - event_type: 1 (CREATED), 2 (UPDATED), 3 (DELETED)
+     - node_id: UUID of the affected node
+     - changed_fields: JSON array of modified fields (for updates)
+     - ts: Unix timestamp
+   ```
+
+3. **Event Consumption**
+   - Clients use `XREAD` to consume events
+   - Supports reading from specific position (for resuming)
+   - Can read historical events or wait for new ones
+   - Multiple consumers can read independently
+
+4. **Benefits of Redis Streams**
+   - **Ordering**: Events are strictly ordered by time
+   - **Durability**: Events persist in Redis
+   - **Performance**: Highly optimized for append and range queries
+   - **Memory Efficiency**: Radix tree structure for storage
+   - **Consumer Groups**: Built-in support for multiple consumers (future feature)
+   - **Trimming**: Can set max stream length to prevent unbounded growth
+
+5. **Event Flow**
+   ```
+   Node Operation → Backend Service → Redis XADD → Stream
+                                                     ↓
+   WatchEvents RPC ← gRPC Stream ← XREAD ← Event Subscribers
+   ```
+
+6. **Stream Maintenance**
+   - Currently no automatic trimming (events persist indefinitely)
+   - Future: Implement `XTRIM` for retention policies
+   - Future: Use consumer groups for guaranteed delivery
+
+### Example Event Stream Entry
+
+```
+Stream: nodes:events
+Entry ID: 1705315200000-0
+Fields:
+  event_type: "2"  # UPDATE event
+  node_id: "550e8400-e29b-41d4-a716-446655440000"
+  changed_fields: "[\"status\",\"last_seen\"]"
+  ts: "1705315200"
+```
+
 ## Running the Backend
 
 ### Local Development

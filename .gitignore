@@ -1,0 +1,30 @@
+# Binaries
+server
+nodectl
+
+# Generated files
+gen/
+*.pb.go
+*.pb.gw.go
+*.swagger.json
+
+# Environment files
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+*.out
+coverage.html
+
+# Docker
+docker-compose.override.yml
