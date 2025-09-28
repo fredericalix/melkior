@@ -60,3 +60,25 @@ lint: ## Run linter
 
 cli: ## Build and install CLI
 	$(GO) install ./cmd/nodectl
+
+build-sim: ## Build demo-sim CLI
+	$(GO) build -o demo-sim ./cmd/demo-sim
+
+run-sim-seed: ## Seed 300 nodes
+	BACKEND_ADDR=localhost:50051 BACKEND_TOKEN=testtoken ./demo-sim seed --total 300
+
+run-sim: ## Run simulation for 6 hours
+	BACKEND_ADDR=localhost:50051 BACKEND_TOKEN=testtoken ./demo-sim run --duration 6h --update-qps 15
+
+run-sim-stats: ## Show simulation stats
+	BACKEND_ADDR=localhost:50051 ./demo-sim stats
+
+run-sim-cleanup: ## Cleanup simulation nodes
+	BACKEND_ADDR=localhost:50051 BACKEND_TOKEN=testtoken ./demo-sim cleanup --force
+
+sim-demo: build-sim ## Complete simulation demo
+	@echo "Starting complete simulation demo..."
+	@$(MAKE) run-sim-seed
+	@sleep 2
+	@$(MAKE) run-sim-stats
+	@echo "Run 'make run-sim' in another terminal to start simulation"
