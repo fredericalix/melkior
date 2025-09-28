@@ -17,6 +17,13 @@ deps: ## Install dependencies
 	$(GO) install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 	$(GO) install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest
 	$(GO) install github.com/bufbuild/buf/cmd/buf@latest
+	@echo "Installing TUI dependencies..."
+	$(GO) get github.com/charmbracelet/bubbletea
+	$(GO) get github.com/charmbracelet/bubbles
+	$(GO) get github.com/charmbracelet/lipgloss
+	$(GO) get github.com/mum4k/termdash
+	$(GO) get github.com/gdamore/tcell/v2
+	$(GO) mod tidy
 
 gen: ## Generate Go code from proto files
 	buf dep update
@@ -35,8 +42,14 @@ run: ## Run server and Redis with docker-compose
 run-server: ## Run server locally (requires Redis)
 	ADMIN_TOKEN=testtoken $(GO) run ./cmd/server
 
-run-cli: ## Run CLI watch mode
+run-cli: ## Run CLI in legacy watch mode
 	BACKEND_TOKEN=testtoken $(GO) run ./cmd/nodectl watch
+
+run-tui: ## Run interactive TUI dashboard
+	BACKEND_ADDR=localhost:50051 BACKEND_TOKEN=testtoken $(GO) run ./cmd/nodectl tui
+
+run-tui-mock: ## Run TUI with mock data (no backend needed)
+	BACKEND_ADDR=mock $(GO) run ./cmd/nodectl tui
 
 docker-build: ## Build Docker images
 	docker build -f Dockerfile.server -t nodestatus-server:latest .

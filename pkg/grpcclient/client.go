@@ -29,6 +29,16 @@ func NewClient(addr, token string) (*Client, error) {
 	}, nil
 }
 
+// Compatibility with new naming
+func New(addr, token string) (*Client, error) {
+	return NewClient(addr, token)
+}
+
+// NodeService returns the underlying node service client
+func (c *Client) NodeService() nodev1.NodeServiceClient {
+	return c.client
+}
+
 func (c *Client) Close() error {
 	if c.conn != nil {
 		return c.conn.Close()

@@ -9,7 +9,8 @@ A production-ready gRPC-first platform for tracking operational status of infras
 - **Redis-Backed Storage**: Fast, indexed storage with append-only event stream
 - **Secure by Default**: Admin token authentication for all mutations
 - **Clean Architecture**: Domain-driven design with clear separation of concerns
-- **CLI Dashboard**: Interactive command-line tool for management and monitoring
+- **Interactive TUI Dashboard**: Real-time terminal UI with charts and visualizations
+- **CLI Tools**: Command-line interface for automation and scripting
 - **Swagger Documentation**: Auto-generated API docs from proto definitions
 
 ## Quick Start
@@ -66,7 +67,156 @@ ADMIN_TOKEN=your-secure-token make run-server
 BACKEND_TOKEN=your-secure-token ./nodectl list
 ```
 
-## CLI Usage
+## TUI Dashboard
+
+The `nodectl` tool now defaults to an interactive Terminal UI dashboard with real-time monitoring capabilities.
+
+### Launching the TUI
+
+```bash
+# Default: Launch interactive TUI
+nodectl
+
+# Or explicitly
+nodectl tui
+
+# With custom settings
+nodectl tui --fps 10 --charts-refresh 100 --window-secs 600
+
+# Test with mock data (no backend required)
+BACKEND_ADDR=mock nodectl tui
+```
+
+### TUI Environment Variables
+
+```bash
+BACKEND_ADDR=localhost:50051  # gRPC backend address
+BACKEND_TOKEN=your-token      # Authentication token
+TUI_FPS=8                      # UI refresh rate (default: 8 FPS)
+CHARTS_REFRESH=250             # Charts update interval in ms
+WINDOW_SECS=300                # Time window for metrics (default: 5 min)
+```
+
+### TUI Views
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ List │ Details │ Logs                                          │
+├─────────────────────────────────────────────────────────────────┤
+│ ID          │ Name         │ Type      │ Status │ Last Seen    │
+│─────────────┼──────────────┼───────────┼────────┼──────────────│
+│ 550e8400... │ web-01       │ VM        │ UP     │ 10:15:30     │
+│ 660f9511... │ db-master    │ BAREMETAL │ UP     │ 10:15:28     │
+│ 770a0622... │ api-service  │ CONTAINER │ DOWN   │ 10:14:45     │
+│ 880b1733... │ worker-02    │ VM        │ DEGRADED│ 10:15:25    │
+├─────────────────────────────────────────────────────────────────┤
+│ Total: 4 | UP: 2 | DOWN: 1 | DEGRADED: 1 | UNKNOWN: 0         │
+│ [↑/↓] Navigate [Enter] Details [f] Filter [c] Charts [q] Quit  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+The dashboard provides multiple views accessible via tabs:
+
+1. **List View**: Table of all nodes with filtering
+   - Shows ID, Name, Type, Status, Last Seen
+   - Footer displays status distribution counts
+   - Filterable by type and status
+
+2. **Details View**: Detailed information for selected node
+   - Full node properties
+   - Labels and metadata
+   - Scrollable for long content
+
+3. **Logs View**: Real-time event stream
+   - Shows CREATE, UPDATE, DELETE events
+   - Timestamp and changed fields
+   - Auto-scroll with manual override
+
+### Charts View (Full-Screen)
+
+Press `c` to open full-screen charts with real-time visualizations:
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                        Status Distribution                     │
+│     ╭─────╮                  ┌─────────────────────────┐      │
+│    ╱       ╲    UP: 45%      │ Node Types              │      │
+│   │   ●●●   │   DOWN: 20%    │ ████████ BAREMETAL (8)  │      │
+│   │  ●   ●  │   DEGRADED: 25%│ ██████   VM (6)         │      │
+│    ╲  ●●●  ╱    UNKNOWN: 10% │ ████     CONTAINER (4)  │      │
+│     ╰─────╯                   └─────────────────────────┘      │
+├────────────────────────────────────────────────────────────────┤
+│                     Status Over Time (5 min)                   │
+│  100│     ╱╲                                                   │
+│   75│    ╱  ╲    ╱╲                                           │
+│   50│───╯    ╲__╱  ╲___   UP ────                            │
+│   25│                   ╲  DOWN ····                           │
+│    0│________________________DEGRADED ----                     │
+│      10:10  10:11  10:12  10:13  10:14  10:15                 │
+├────────────────────────────────────────────────────────────────┤
+│ Events/sec [████████░░] 8.5  │ Mutations/sec [██░░░░] 2.1     │
+│ Press 'q' or 'esc' to return │                                 │
+└────────────────────────────────────────────────────────────────┘
+```
+
+- **Status Donut**: Distribution of node statuses (UP/DOWN/DEGRADED/UNKNOWN)
+- **Type Bar Chart**: Count by node type (BAREMETAL/VM/CONTAINER)
+- **Time Series**: Historical status counts over time window
+- **Gauges**: Events/sec and Mutations/sec metrics
+
+### Keyboard Shortcuts
+
+#### Global
+- `q`, `Ctrl+C`: Quit application
+- `?`: Toggle help
+- `Tab`, `→`: Next tab
+- `←`: Previous tab
+- `c`: Open charts view
+
+#### List View
+- `↑/k`, `↓/j`: Navigate table
+- `Enter`: Show selected node details
+- `f`: Toggle filters
+- `r`: Reset filters
+- `PgUp/PgDn`: Page navigation
+
+#### Details/Logs View
+- `↑/k`, `↓/j`: Scroll content
+- `PgUp/PgDn`: Page scroll
+- `Home/End`: Jump to start/end
+- `a`: Toggle auto-scroll (logs only)
+
+#### Charts View
+- `Esc`, `q`: Return to main dashboard
+- Charts auto-update based on CHARTS_REFRESH setting
+
+### Terminal Requirements
+
+- **Minimum Size**: 80x24 characters
+- **Recommended**: 120x40 or larger for best experience
+- **Color Support**: 256 colors or true color terminal
+- **Font**: Monospace font with Unicode support
+
+### Troubleshooting TUI
+
+**Issue: Characters appear garbled**
+- Ensure terminal supports UTF-8
+- Set `export LANG=en_US.UTF-8`
+
+**Issue: Charts not rendering correctly**
+- Check terminal size: `echo $COLUMNS $LINES`
+- Try different terminal emulator (iTerm2, Windows Terminal, etc.)
+
+**Issue: Slow performance**
+- Reduce FPS: `nodectl tui --fps 4`
+- Increase charts refresh: `nodectl tui --charts-refresh 500`
+
+**Issue: Connection errors**
+- Verify backend is running: `nc -zv localhost 50051`
+- Check token: `echo $BACKEND_TOKEN`
+- Try mock mode: `BACKEND_ADDR=mock nodectl tui`
+
+## CLI Usage (Legacy Mode)
 
 ### Watch Events
 
