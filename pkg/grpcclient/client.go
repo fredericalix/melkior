@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	nodev1 "github.com/melkior/nodestatus/gen/go/api/proto"
+	"github.com/melkior/nodestatus/internal/logging"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -17,14 +18,23 @@ type Client struct {
 }
 
 func NewClient(addr, token string) (*Client, error) {
+	logging.Debug("Creating gRPC client for %s", addr)
+
+	logging.Debug("Calling grpc.NewClient...")
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
+		logging.Error("grpc.NewClient failed: %v", err)
 		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
+	logging.Debug("grpc.NewClient successful, connection created")
 
+	logging.Debug("Creating NodeServiceClient...")
+	client := nodev1.NewNodeServiceClient(conn)
+
+	logging.Debug("gRPC client created successfully for %s", addr)
 	return &Client{
 		conn:   conn,
-		client: nodev1.NewNodeServiceClient(conn),
+		client: client,
 		token:  token,
 	}, nil
 }
@@ -120,5 +130,12 @@ func (c *Client) ListNodes(ctx context.Context, typeFilter nodev1.NodeType, stat
 }
 
 func (c *Client) WatchEvents(ctx context.Context) (nodev1.NodeService_WatchEventsClient, error) {
-	return c.client.WatchEvents(ctx, &nodev1.WatchEventsRequest{})
+	logging.Debug("Calling WatchEvents on gRPC client...")
+	stream, err := c.client.WatchEvents(ctx, &nodev1.WatchEventsRequest{})
+	if err != nil {
+		logging.Error("WatchEvents failed: %v", err)
+		return nil, err
+	}
+	logging.Debug("WatchEvents stream created successfully")
+	return stream, nil
 }

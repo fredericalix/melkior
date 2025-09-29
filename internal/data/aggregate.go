@@ -6,6 +6,7 @@ import (
 	"time"
 
 	nodev1 "github.com/melkior/nodestatus/gen/go/api/proto"
+	"github.com/melkior/nodestatus/internal/logging"
 )
 
 // Aggregator maintains rolling metrics and time-series data
@@ -126,8 +127,13 @@ func (agg *Aggregator) HandleEvent(event *Event) {
 
 // SetNodes initializes the node set (for initial load)
 func (agg *Aggregator) SetNodes(nodes []*Node) {
+	logging.Debug("Aggregator.SetNodes: Acquiring Lock for %d nodes...", len(nodes))
 	agg.mu.Lock()
-	defer agg.mu.Unlock()
+	defer func() {
+		logging.Debug("Aggregator.SetNodes: Releasing Lock")
+		agg.mu.Unlock()
+	}()
+	logging.Debug("Aggregator.SetNodes: Lock acquired")
 
 	// Clear existing counts
 	agg.nodes = make(map[string]*Node)
@@ -144,8 +150,10 @@ func (agg *Aggregator) SetNodes(nodes []*Node) {
 
 // GetNodes returns a copy of current nodes
 func (agg *Aggregator) GetNodes() []*Node {
+	logging.Debug("Aggregator.GetNodes: Acquiring RLock...")
 	agg.mu.RLock()
 	defer agg.mu.RUnlock()
+	logging.Debug("Aggregator.GetNodes: RLock acquired, %d nodes", len(agg.nodes))
 
 	nodes := make([]*Node, 0, len(agg.nodes))
 	for _, node := range agg.nodes {
@@ -160,6 +168,11 @@ func (agg *Aggregator) Snapshot() MetricsSnapshot {
 	agg.mu.RLock()
 	defer agg.mu.RUnlock()
 
+	return agg.snapshotUnlocked()
+}
+
+// snapshotUnlocked returns a snapshot without locking (caller must hold lock)
+func (agg *Aggregator) snapshotUnlocked() MetricsSnapshot {
 	snap := MetricsSnapshot{
 		Timestamp:    time.Now(),
 		StatusCounts: make(map[nodev1.NodeStatus]int),
@@ -258,6 +271,7 @@ func (agg *Aggregator) sampleLoop() {
 
 // sample captures current metrics into time series
 func (agg *Aggregator) sample() {
+	logging.Debug("Aggregator.sample: Acquiring Lock...")
 	agg.mu.Lock()
 
 	// Push current status counts to time series
@@ -273,9 +287,11 @@ func (agg *Aggregator) sample() {
 	agg.eventsLastSec = 0
 	agg.mutationsLastSec = 0
 
-	// Create snapshot for subscribers
-	snap := agg.Snapshot()
+	// Create snapshot for subscribers - must be done WITHOUT lock held to avoid deadlock
+	// First collect the data we need while holding the lock
+	snap := agg.snapshotUnlocked()
 
+	logging.Debug("Aggregator.sample: Releasing Lock")
 	agg.mu.Unlock()
 
 	// Notify subscribers (non-blocking)

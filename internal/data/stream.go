@@ -8,6 +8,7 @@ import (
 	"time"
 
 	nodev1 "github.com/melkior/nodestatus/gen/go/api/proto"
+	"github.com/melkior/nodestatus/internal/logging"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -43,17 +44,25 @@ func NewStreamConsumer(client nodev1.NodeServiceClient, aggregator *Aggregator) 
 
 // Start begins consuming events
 func (sc *StreamConsumer) Start(ctx context.Context) error {
+	logging.Debug("StreamConsumer.Start called")
+
 	// First, load initial state
+	logging.Debug("Loading initial state...")
 	if err := sc.loadInitialState(ctx); err != nil {
+		logging.Error("Failed to load initial state: %v", err)
 		return fmt.Errorf("failed to load initial state: %w", err)
 	}
+	logging.Debug("Initial state loaded successfully")
 
 	// Start the stream consumer
+	logging.Debug("Starting consume loop goroutine...")
 	go sc.consumeLoop(ctx)
 
 	// Start the event processor
+	logging.Debug("Starting event processor goroutine...")
 	go sc.processEvents()
 
+	logging.Debug("StreamConsumer started successfully")
 	return nil
 }
 
@@ -76,57 +85,78 @@ func (sc *StreamConsumer) Errors() <-chan error {
 
 // loadInitialState loads all current nodes
 func (sc *StreamConsumer) loadInitialState(ctx context.Context) error {
+	logging.Debug("Calling ListNodes to load initial state...")
 	resp, err := sc.client.ListNodes(ctx, &nodev1.ListNodesRequest{
 		PageSize: 1000,
 	})
 	if err != nil {
+		logging.Error("ListNodes failed: %v", err)
 		return err
 	}
+	logging.Debug("ListNodes returned %d nodes", len(resp.Nodes))
 
 	nodes := make([]*Node, 0, len(resp.Nodes))
 	for _, n := range resp.Nodes {
 		nodes = append(nodes, convertNode(n))
 	}
 
+	logging.Debug("Setting %d nodes in aggregator", len(nodes))
 	sc.aggregator.SetNodes(nodes)
 	return nil
 }
 
 // consumeLoop continuously consumes events with reconnection
 func (sc *StreamConsumer) consumeLoop(ctx context.Context) {
+	logging.Debug("ConsumeLoop goroutine started")
 	retries := 0
 
 	for {
 		select {
 		case <-sc.ctx.Done():
+			logging.Info("ConsumeLoop: context done, exiting")
 			return
 		default:
 		}
 
 		// Try to establish stream
+		logging.Debug("ConsumeLoop: Attempting to establish WatchEvents stream...")
 		stream, err := sc.client.WatchEvents(ctx, &nodev1.WatchEventsRequest{})
 		if err != nil {
+			logging.Error("ConsumeLoop: Failed to establish stream: %v", err)
 			sc.handleStreamError(err, &retries)
 			continue
 		}
+		logging.Debug("ConsumeLoop: Stream established successfully")
 
 		// Reset retries on successful connection
 		retries = 0
+		eventCount := 0
 
 		// Consume from stream
+		logging.Debug("ConsumeLoop: Starting to receive from stream...")
 		for {
 			resp, err := stream.Recv()
 			if err != nil {
 				if err == io.EOF {
 					// Stream ended normally
+					logging.Info("ConsumeLoop: Stream ended normally (EOF)")
 					break
 				}
 
+				logging.Error("ConsumeLoop: Stream receive error: %v", err)
 				// Handle error and decide whether to retry
 				if !sc.handleStreamError(err, &retries) {
+					logging.Error("ConsumeLoop: Max retries reached, exiting")
 					return
 				}
 				break
+			}
+
+			eventCount++
+			if eventCount == 1 {
+				logging.Debug("ConsumeLoop: First event received")
+			} else if eventCount % 10 == 0 {
+				logging.Debug("ConsumeLoop: Received %d events", eventCount)
 			}
 
 			// Convert and send event
@@ -140,6 +170,7 @@ func (sc *StreamConsumer) consumeLoop(ctx context.Context) {
 			select {
 			case sc.eventChan <- event:
 			case <-sc.ctx.Done():
+				logging.Info("ConsumeLoop: Context done while sending event, exiting")
 				return
 			}
 		}
@@ -256,6 +287,7 @@ type MockStreamConsumer struct {
 
 // NewMockStreamConsumer creates a mock stream consumer for testing
 func NewMockStreamConsumer(aggregator *Aggregator) *MockStreamConsumer {
+	logging.Debug("Creating MockStreamConsumer")
 	ctx, cancel := context.WithCancel(context.Background())
 	sc := &StreamConsumer{
 		aggregator: aggregator,
@@ -273,6 +305,8 @@ func NewMockStreamConsumer(aggregator *Aggregator) *MockStreamConsumer {
 
 // Start begins generating mock events
 func (msc *MockStreamConsumer) Start(ctx context.Context) error {
+	logging.Debug("MockStreamConsumer.Start called")
+
 	// Generate initial nodes
 	nodes := make([]*Node, 0, 10)
 	for i := 0; i < 10; i++ {
@@ -286,16 +320,21 @@ func (msc *MockStreamConsumer) Start(ctx context.Context) error {
 			LastSeen: time.Now(),
 		})
 	}
+	logging.Debug("MockStreamConsumer: Setting %d initial nodes", len(nodes))
 	msc.aggregator.SetNodes(nodes)
 
-	// Start generating events
+	// Start generating events (DO NOT call processEvents for mock, let app.go handle it)
+	logging.Debug("MockStreamConsumer: Starting event generator goroutine")
 	go msc.generateEvents()
 
+	logging.Debug("MockStreamConsumer.Start completed")
 	return nil
 }
 
 // generateEvents generates mock events
 func (msc *MockStreamConsumer) generateEvents() {
+	logging.Debug("MockStreamConsumer.generateEvents goroutine started")
+
 	eventTypes := []nodev1.EventType{
 		nodev1.EventType_CREATED,
 		nodev1.EventType_UPDATED,
@@ -305,11 +344,16 @@ func (msc *MockStreamConsumer) generateEvents() {
 	}
 
 	nodeID := 10
+	eventCount := 0
+
 	for {
 		select {
 		case <-msc.ticker.C:
+			eventCount++
+			logging.Debug("MockStreamConsumer: Ticker fired, generating event #%d", eventCount)
 			// Generate random event
 			eventType := eventTypes[rand.Intn(len(eventTypes))]
+			logging.Debug("MockStreamConsumer: Event type will be %v", eventType)
 
 			var event *Event
 			switch eventType {
@@ -330,7 +374,9 @@ func (msc *MockStreamConsumer) generateEvents() {
 				nodeID++
 
 			case nodev1.EventType_UPDATED:
+				logging.Debug("MockStreamConsumer: Getting nodes for UPDATE...")
 				nodes := msc.aggregator.GetNodes()
+				logging.Debug("MockStreamConsumer: Got %d nodes", len(nodes))
 				if len(nodes) > 0 {
 					node := nodes[rand.Intn(len(nodes))]
 					node.Status = nodev1.NodeStatus(rand.Intn(4) + 1)
@@ -345,6 +391,7 @@ func (msc *MockStreamConsumer) generateEvents() {
 
 			case nodev1.EventType_DELETED:
 				nodes := msc.aggregator.GetNodes()
+				logging.Debug("MockStreamConsumer: DELETED event, found %d nodes", len(nodes))
 				if len(nodes) > 1 {
 					node := nodes[rand.Intn(len(nodes))]
 					event = &Event{
@@ -352,19 +399,25 @@ func (msc *MockStreamConsumer) generateEvents() {
 						Node:      node,
 						Timestamp: time.Now(),
 					}
+				} else {
+					logging.Debug("MockStreamConsumer: Not enough nodes for DELETED event, skipping")
 				}
 			}
 
 			if event != nil {
+				logging.Debug("MockStreamConsumer: Sending event type=%v to channel", event.Type)
 				select {
 				case msc.eventChan <- event:
-					msc.aggregator.HandleEvent(event)
+					// Do NOT call HandleEvent here - let app.go's processEventsBackground do it
+					logging.Debug("MockStreamConsumer: Event sent to channel")
 				case <-msc.ctx.Done():
+					logging.Info("MockStreamConsumer: Context cancelled, exiting generateEvents")
 					return
 				}
 			}
 
 		case <-msc.ctx.Done():
+			logging.Info("MockStreamConsumer: Context cancelled, exiting generateEvents")
 			return
 		}
 	}
